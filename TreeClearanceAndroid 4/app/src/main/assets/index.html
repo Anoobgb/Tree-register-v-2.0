@@ -1,0 +1,110 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Tree Clearance Register</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#17212b;--muted:#5b6570;--line:#d9e0e6;--blue:#164e83;--red:#b91c1c;--orange:#c05a00;--green:#137547}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px Arial,sans-serif}
+header{background:#123d63;color:white;padding:16px 14px;position:sticky;top:0;z-index:2}
+h1{font-size:20px;margin:0 0 4px}.sub{font-size:12px;opacity:.85}
+main{padding:12px;max-width:760px;margin:auto}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card,.urgent,.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px}
+.urgent{background:#fee2e2;border-color:#fca5a5;color:#991b1b;text-align:left;width:100%;cursor:pointer}
+.stat .num,.urgent .num{font-size:30px;font-weight:800;display:block;margin:5px 0}
+.small{font-size:12px;color:var(--muted)}.urgent .small{color:#991b1b}
+nav{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}
+button{font-size:14px;font-weight:700;border:1px solid var(--line);border-radius:9px;padding:12px;background:white;color:var(--ink);cursor:pointer}
+button.primary{background:var(--blue);color:white;border-color:var(--blue)}button.danger{color:var(--red)}
+input,select{font-size:16px;padding:11px;border:1px solid #aeb9c3;border-radius:8px;width:100%;background:white;color:#17212b}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 5px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.species{display:grid;grid-template-columns:1fr 90px;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #edf0f2;font-size:14px}
+.species input[type=checkbox]{width:20px;height:20px}.species input[type=number]{padding:7px}
+.loc{border-left:5px solid #9ca3af}.loc.orange{border-left-color:#d97706}.loc.red{border-left-color:#dc2626}
+.loc.blink{animation:blink 1s steps(2,start) infinite}@keyframes blink{to{border-color:#dc2626;background:#fee2e2}}
+.pill{display:inline-block;padding:4px 8px;border-radius:20px;background:#edf2f7;font-size:12px;font-weight:bold}
+.tree{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #eee;font-size:14px}.tree input{width:20px;height:20px}
+.tree .done{color:var(--green);font-weight:bold}.hidden{display:none!important}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1}
+h2{font-size:17px;margin:14px 0 8px}.fieldhint{font-size:12px;color:var(--muted);margin-top:3px}
+</style></head><body>
+<header><h1>Tree Clearance Register</h1><div class="sub">TRANSMISSION LINE MANAGEMENT</div></header>
+<main>
+<div class="grid">
+<button class="urgent" id="urgentBtn"><span style="font-weight:800">URGENT LOCATIONS</span><span class="num" id="urgentCount">0</span><span class="small">Due within 7 days or overdue · Tap to view</span></button>
+<div class="stat"><b>ACTIVE LOCATIONS</b><span class="num" id="activeCount">0</span><span class="small">Pending clearance</span></div>
+</div>
+<nav><button onclick="show('active')">View List</button><button onclick="show('completed')">Completed</button><button class="primary" onclick="newEntry()">+ New Entry</button></nav>
+<section id="active">
+<h2 id="listTitle">Active locations</h2><input id="search" placeholder="Search tower number or species" oninput="render()"><div id="activeList"></div>
+<div class="actions"><button onclick="exportCsv('active')">Download Active CSV</button></div>
+</section>
+<section id="completed" class="hidden"><h2>Completed locations</h2><div id="completedList"></div><div class="actions"><button onclick="exportCsv('completed')">Download Completed CSV</button></div></section>
+<section id="entry" class="hidden">
+<h2>New tree clearance entry</h2>
+<div class="card">
+<div class="row"><div><label>Tower From</label><input id="from" inputmode="numeric" placeholder="e.g. 120"></div><div><label>Tower To</label><input id="to" inputmode="numeric" placeholder="e.g. 125"></div></div>
+<label>Criticality (days)</label><input id="days" type="number" min="1" placeholder="Number of days from inspection">
+<div class="fieldhint">Inspection date and entry date/time are captured automatically when saved.</div>
+<h2>Select tree species and quantity</h2><div id="speciesList"></div>
+<button class="primary" style="width:100%;margin-top:12px" onclick="saveEntry()">Save Entry</button><div id="entryMsg" class="small"></div>
+</div></section>
+</main>
+<script>
+const SPECIES=['Jungle tree','Anjali','Mahogany','Teak','Rubber tree','Konna tree','Cashew tree','Mango','Bamboo','Jackfruit','Coconut','Drumstick','Others'];
+const KEY='tlm_tree_register_v1';
+let records=[];try{records=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){records=[]}
+let urgentOnly=false;
+const $=id=>document.getElementById(id);
+function save(){localStorage.setItem(KEY,JSON.stringify(records));render()}
+function dateOnly(d=new Date()){return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)}
+function stamp(){return new Date().toISOString()}
+function dueDate(r){let d=new Date(r.inspectionDate+'T00:00:00');d.setDate(d.getDate()+Number(r.criticality));return dateOnly(d)}
+function daysLeft(r){return Math.ceil((new Date(dueDate(r)+'T00:00:00')-new Date(dateOnly()+'T00:00:00'))/86400000)}
+function isComplete(r){return r.trees.length>0&&r.trees.every(t=>t.cleared)}
+function show(s){['active','completed','entry'].forEach(x=>$(x).classList.toggle('hidden',x!==s));if(s==='active'){urgentOnly=false;render()}if(s==='completed')renderCompleted()}
+function newEntry(){let p=prompt('Enter access code');if(p!=='0007'){if(p!==null)alert('Access denied');return}show('entry')}
+function setupSpecies(){$('speciesList').innerHTML=SPECIES.map((s,i)=>`<div class="species"><label style="margin:0;font-weight:500"><input type="checkbox" id="sp${i}" style="width:20px;vertical-align:middle"> ${s}</label><input type="number" min="1" value="1" id="qty${i}" aria-label="${s} quantity"></div>`).join('')}
+function saveEntry(){
+ let from=$('from').value.trim(),to=$('to').value.trim(),days=Number($('days').value);
+ let trees=SPECIES.map((s,i)=>({species:s,quantity:Math.max(1,Number($('qty'+i).value)||1),cleared:$('sp'+i).checked?false:null,clearedAt:null})).filter(t=>t.cleared!==null);
+ if(!from||!to||!Number.isInteger(days)||days<1||!trees.length){$('entryMsg').textContent='Enter tower range, criticality days and select at least one tree species.';return}
+ let now=stamp();records.push({id:String(Date.now()),from,to,criticality:days,inspectionDate:dateOnly(),createdAt:now,trees,completedAt:null});
+ save();$('from').value='';$('to').value='';$('days').value='';SPECIES.forEach((s,i)=>{$('sp'+i).checked=false;$('qty'+i).value=1});$('entryMsg').textContent='Entry saved.';show('active');
+}
+function card(r,completed=false){
+ let left=daysLeft(r),cl=left<3?'red':left<7?'orange':'',label=left<0?Math.abs(left)+' days overdue':left===0?'Due today':left+' days remaining';
+ let div=document.createElement('div');div.className='card loc '+cl+(left<3&&!completed?' blink':'');
+ let html=`<div style="display:flex;justify-content:space-between;gap:8px"><div><b>Tower ${esc(r.from)} – ${esc(r.to)}</b><div class="small">Inspection: ${r.inspectionDate} · Entered: ${new Date(r.createdAt).toLocaleString()}</div></div><span class="pill">${completed?'COMPLETED':label}</span></div>
+ <div class="small" style="margin-top:7px">Criticality: ${r.criticality} days · Due: ${dueDate(r)} · ${r.trees.filter(t=>t.cleared).length}/${r.trees.length} trees cleared</div>
+ <details style="margin-top:8px"><summary style="font-weight:700;cursor:pointer">Tree details and clearance checklist</summary><div id="trees-${r.id}"></div></details>`;
+ div.innerHTML=html;
+ let list=div.querySelector('#trees-'+r.id);
+ r.trees.forEach((t,i)=>{let row=document.createElement('div');row.className='tree';
+ let checked=t.cleared?'checked':'';row.innerHTML=`<input type="checkbox" ${checked} ${completed?'disabled':''} aria-label="Mark ${esc(t.species)} cleared"><div style="flex:1"><b>${esc(t.species)}</b> · Qty ${t.quantity}<div class="small">${t.cleared?'Cleared: '+new Date(t.clearedAt).toLocaleString():'Pending clearance'}</div></div>${t.cleared?'<span class="done">✓</span>':''}`;
+ let cb=row.querySelector('input');cb.addEventListener('change',()=>{t.cleared=cb.checked;t.clearedAt=cb.checked?stamp():null;r.completedAt=isComplete(r)?stamp():null;save()});list.appendChild(row)});
+ if(completed){let foot=document.createElement('div');foot.className='small';foot.style.marginTop='8px';foot.textContent='Location completed: '+new Date(r.completedAt).toLocaleString();div.appendChild(foot)}
+ return div;
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function render(){
+ let active=records.filter(r=>!isComplete(r)),urgent=active.filter(r=>daysLeft(r)<=7);
+ $('urgentCount').textContent=urgent.length;$('activeCount').textContent=active.length;
+ $('listTitle').textContent=urgentOnly?'Urgent locations · 7 days or less':'Active locations';
+ let q=$('search').value.toLowerCase(),shown=(urgentOnly?urgent:active).filter(r=>(r.from+' '+r.to+' '+r.trees.map(t=>t.species).join(' ')).toLowerCase().includes(q));
+ $('activeList').innerHTML='';if(!shown.length)$('activeList').innerHTML='<div class="card small">No locations found.</div>';shown.forEach(r=>$('activeList').appendChild(card(r)));
+}
+function renderCompleted(){let done=records.filter(isComplete);$('completedList').innerHTML='';if(!done.length)$('completedList').innerHTML='<div class="card small">No completed locations yet.</div>';done.forEach(r=>$('completedList').appendChild(card(r,true)))}
+$('urgentBtn').onclick=()=>{show('active');urgentOnly=true;render()};
+function exportCsv(which){
+ let p=prompt('Enter download access code');if(p!=='1117'){if(p!==null)alert('Access denied');return}
+ let list=records.filter(r=>which==='completed'?isComplete(r):!isComplete(r));
+ let cols=['Tower From','Tower To','Inspection Date','Entry Date/Time','Species','Quantity','Criticality Days','Due Date','Tree Status','Tree Completion Date/Time','Location Status','Final Completion Date/Time'];
+ let rows=[cols];list.forEach(r=>r.trees.forEach(t=>rows.push([r.from,r.to,r.inspectionDate,r.createdAt,t.species,t.quantity,r.criticality,dueDate(r),t.cleared?'Cleared':'Pending',t.clearedAt||'',isComplete(r)?'Completed':'Active',r.completedAt||''])));
+ let csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+ let filename=which==='completed'?'Tree_Clearance_Completed.csv':'Tree_Clearance_Active.csv';
+ if(window.AndroidBridge && typeof AndroidBridge.downloadCsv==='function'){
+   AndroidBridge.downloadCsv(filename,csv);
+ }else{
+   let a=document.createElement('a'),url=URL.createObjectURL(new Blob(['\\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+   a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }
+}
+setupSpecies();render();
+</script></body></html>
